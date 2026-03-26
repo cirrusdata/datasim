@@ -50,6 +50,31 @@ source:
 release:
   draft: false
   prerelease: auto
+  header: |
+    ## Installing
+
+    **Linux (amd64):**
+    ```bash
+    curl -sL https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_linux_amd64.tar.gz \
+      | sudo tar xz -C /usr/local/bin datasim
+    ```
+
+    **Linux (arm64):**
+    ```bash
+    curl -sL https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_linux_arm64.tar.gz \
+      | sudo tar xz -C /usr/local/bin datasim
+    ```
+
+    **Windows (amd64):**
+    Download [datasim_{{ .Version }}_windows_amd64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_amd64.zip), extract it, and place `datasim.exe` somewhere on your `PATH`.
+
+    **Windows (arm64):**
+    Download [datasim_{{ .Version }}_windows_arm64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_arm64.zip), extract it, and place `datasim.exe` somewhere on your `PATH`.
+
+    Verify the install:
+    ```bash
+    datasim version
+    ```
 
 changelog:
   sort: asc

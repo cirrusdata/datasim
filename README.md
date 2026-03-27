@@ -51,6 +51,8 @@ datasim fileset init --fs /mnt/test --profile nasa --size 50GiB --seed 42
 
 The `--strategy` flag controls how files are distributed across the tree. `balanced` (the default) applies the profile's characteristic distribution. `random` produces higher-variance output with irregular file counts and sizes, which can stress certain edge cases in migration or sync tools.
 
+Synthetic profiles also randomize file modification timestamps by default so the generated tree looks more like a lived-in dataset instead of a single bulk write.
+
 #### Dataset Profile
 
 A profile controls the shape of the generated dataset: how directories are named, how deep the tree goes, what file extensions appear, and how large files tend to be.

@@ -19,6 +19,8 @@ const (
 	StrategyBalanced = "balanced"
 	// StrategyRandom increases variability in generated and rotated content.
 	StrategyRandom = "random"
+	// historicalModifiedAtWindow defines how far back synthetic file mtimes may be randomized.
+	historicalModifiedAtWindow = 5 * 365 * 24 * time.Hour
 )
 
 // Profile describes a built-in fileset flavor.
@@ -173,7 +175,7 @@ func (p Profile) PlanInit(_ context.Context, req InitRequest) (InitPlan, error) 
 			Size:         size,
 			Seed:         req.Seed + int64(i+1),
 			Mode:         pickMode(rng),
-			ModifiedAt:   now.Add(-time.Duration(rng.Intn(24*365)) * time.Hour),
+			ModifiedAt:   randomHistoricalModifiedAt(rng, now),
 			Labels: map[string]string{
 				"workload": "fileset",
 				"profile":  p.Name,
@@ -214,6 +216,7 @@ func (p Profile) PlanRotate(_ context.Context, req RotateRequest) (RotatePlan, e
 
 	remaining := current[min(deleteCount, len(current)):]
 	mutations := make([]Mutation, 0, modifyCount)
+	rotationNow := time.Now().UTC()
 	for idx, record := range remaining[:min(modifyCount, len(remaining))] {
 		action := []MutationAction{MutationRewrite, MutationAppend, MutationTruncate}[rng.Intn(3)]
 		newSize := record.Size
@@ -231,7 +234,7 @@ func (p Profile) PlanRotate(_ context.Context, req RotateRequest) (RotatePlan, e
 			Action:       action,
 			NewSize:      newSize,
 			Seed:         req.Seed + int64(idx+1),
-			ModifiedAt:   time.Now().UTC(),
+			ModifiedAt:   randomMutationModifiedAt(rng, record.ModifiedAt, rotationNow),
 		})
 	}
 
@@ -552,4 +555,34 @@ func totalBytes(files []manifest.FileRecord) int64 {
 		sum += file.Size
 	}
 	return sum
+}
+
+// randomHistoricalModifiedAt returns a randomized historical mtime for a synthetic file.
+func randomHistoricalModifiedAt(rng *rand.Rand, now time.Time) time.Time {
+	return randomTimeBetween(rng, now.Add(-historicalModifiedAtWindow), now)
+}
+
+// randomMutationModifiedAt returns a randomized mutation time that still advances the file clock.
+func randomMutationModifiedAt(rng *rand.Rand, previous time.Time, now time.Time) time.Time {
+	if previous.IsZero() || !previous.Before(now) {
+		return now.UTC()
+	}
+
+	return randomTimeBetween(rng, previous.Add(time.Second), now)
+}
+
+// randomTimeBetween returns a random UTC timestamp between the provided bounds.
+func randomTimeBetween(rng *rand.Rand, start time.Time, end time.Time) time.Time {
+	start = start.UTC().Truncate(time.Second)
+	end = end.UTC().Truncate(time.Second)
+	if !start.Before(end) {
+		return end
+	}
+
+	spanSeconds := int64(end.Sub(start) / time.Second)
+	if spanSeconds <= 0 {
+		return end
+	}
+
+	return start.Add(time.Duration(rng.Int63n(spanSeconds+1)) * time.Second)
 }

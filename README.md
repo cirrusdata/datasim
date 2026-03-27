@@ -8,6 +8,7 @@ The first simulation included is `fileset`, which generates and rotates syntheti
 
 Download the latest prebuilt binary from the [releases page](https://github.com/cirrusdata/datasim/releases). Each release includes copy-paste install commands for Linux (amd64 and arm64) and Windows (amd64 and arm64).
 
+To run datasim on macOS or in a container, see [docs/docker.md](docs/docker.md).
 
 ## fileset
 

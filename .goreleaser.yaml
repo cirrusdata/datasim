@@ -21,10 +21,10 @@ builds:
     ldflags:
       - >-
         -s -w
-        -X github.com/cirrusdata/datasim/cmd/datasim.version={{ .Version }}
-        -X github.com/cirrusdata/datasim/cmd/datasim.commit={{ .Commit }}
-        -X github.com/cirrusdata/datasim/cmd/datasim.date={{ .Date }}
-        -X github.com/cirrusdata/datasim/cmd/datasim.repository=cirrusdata/datasim
+        -X main.version={{ .Version }}
+        -X main.commit={{ .Commit }}
+        -X main.date={{ .Date }}
+        -X main.repository=cirrusdata/datasim
 
 archives:
   - id: release-archives
@@ -66,10 +66,10 @@ release:
     ```
 
     **Windows (amd64):**
-    Download [datasim_{{ .Version }}_windows_amd64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_amd64.zip), extract it, and place `datasim.exe` somewhere on your `PATH`.
+    Download [datasim_{{ .Version }}_windows_amd64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_amd64.zip), extract it, and run `datasim.exe`.
 
     **Windows (arm64):**
-    Download [datasim_{{ .Version }}_windows_arm64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_arm64.zip), extract it, and place `datasim.exe` somewhere on your `PATH`.
+    Download [datasim_{{ .Version }}_windows_arm64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_arm64.zip), extract it, and run `datasim.exe`.
 
     Verify the install:
     ```bash

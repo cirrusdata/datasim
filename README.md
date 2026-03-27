@@ -141,10 +141,10 @@ This fetches the latest stable release, verifies its checksum, and replaces the 
 
 ## Agent Skill
 
-If you are using an AI coding agent, install the datasim operator skill:
+If you are using an AI coding agent, install the `datasim` skill:
 
 ```bash
-npx skills add cirrusdata/datasim --skill datasim-operator
+npx skills add cirrusdata/datasim --skill datasim
 ```
 
 ## Getting help

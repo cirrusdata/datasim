@@ -23,6 +23,7 @@ func TestInitAndRotate(t *testing.T) {
 		TotalSize: "1MiB",
 		Seed:      99,
 		Strategy:  "balanced",
+		Workers:   4,
 	})
 	if err != nil {
 		t.Fatalf("Init returned error: %v", err)
@@ -48,6 +49,7 @@ func TestInitAndRotate(t *testing.T) {
 		ModifyPct: 10,
 		Seed:      101,
 		Strategy:  "balanced",
+		Workers:   4,
 	})
 	if err != nil {
 		t.Fatalf("Rotate returned error: %v", err)
@@ -94,6 +96,7 @@ func TestProgressCallbacks(t *testing.T) {
 		TotalSize: "1MiB",
 		Seed:      99,
 		Strategy:  StrategyBalanced,
+		Workers:   4,
 		Progress: func(progress Progress) {
 			initCalls++
 			lastInit = progress
@@ -118,6 +121,7 @@ func TestProgressCallbacks(t *testing.T) {
 		ModifyPct: 10,
 		Seed:      101,
 		Strategy:  StrategyBalanced,
+		Workers:   4,
 		Progress: func(progress Progress) {
 			rotateCalls++
 			lastRotate = progress
@@ -170,5 +174,48 @@ func TestInvalidStrategy(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected invalid init strategy error")
+	}
+}
+
+// TestDefaultWorkerCount verifies the default concurrency floor.
+func TestDefaultWorkerCount(t *testing.T) {
+	t.Parallel()
+
+	if got := DefaultWorkerCount(); got < 8 {
+		t.Fatalf("expected default worker count to be at least 8, got %d", got)
+	}
+}
+
+// TestInvalidWorkerCount verifies negative worker counts are rejected.
+func TestInvalidWorkerCount(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store := manifest.NewStore(".cirrusdata-datasim")
+	service := NewService(NewCatalog(), store)
+
+	_, err := service.Init(context.Background(), InitOptions{
+		Profile:   "corporate",
+		Root:      root,
+		TotalSize: "1MiB",
+		Seed:      99,
+		Strategy:  StrategyBalanced,
+		Workers:   -1,
+	})
+	if err == nil {
+		t.Fatal("expected invalid init worker count error")
+	}
+
+	_, err = service.Rotate(context.Background(), RotateOptions{
+		Root:      root,
+		CreatePct: 5,
+		DeletePct: 5,
+		ModifyPct: 10,
+		Seed:      101,
+		Strategy:  StrategyBalanced,
+		Workers:   -1,
+	})
+	if err == nil {
+		t.Fatal("expected invalid rotate worker count error")
 	}
 }

@@ -120,6 +120,11 @@ func strategyCompletion(toComplete string) ([]string, cobra.ShellCompDirective) 
 	return results, cobra.ShellCompDirectiveNoFileComp
 }
 
+// concurrentFlagUsage returns a user-facing concurrency flag description.
+func concurrentFlagUsage() string {
+	return fmt.Sprintf("Maximum number of filesystem operations to run concurrently; defaults to %d", fileset.DefaultWorkerCount())
+}
+
 // progressBarDisabled returns whether live progress rendering should be disabled.
 func progressBarDisabled(cmd *cobra.Command) bool {
 	disabled, _ := cmd.Flags().GetBool("no-progress-bar")

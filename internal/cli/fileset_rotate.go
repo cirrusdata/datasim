@@ -74,6 +74,7 @@ func bindFilesetRotateFlags(cmd *cobra.Command) {
 	cmd.Flags().Float64("modify-pct", 10, "Percentage of files to modify")
 	cmd.Flags().Int64("seed", 0, "Random seed for reproducible rotation")
 	cmd.Flags().String("strategy", fileset.StrategyBalanced, strategyFlagUsage())
+	cmd.Flags().Int("concurrent", fileset.DefaultWorkerCount(), concurrentFlagUsage())
 	_ = cmd.MarkFlagRequired("fs")
 	_ = cmd.RegisterFlagCompletionFunc("strategy", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return strategyCompletion(toComplete)
@@ -88,6 +89,7 @@ func readFilesetRotateOptions(cmd *cobra.Command) fileset.RotateOptions {
 	modifyPct, _ := cmd.Flags().GetFloat64("modify-pct")
 	seed, _ := cmd.Flags().GetInt64("seed")
 	strategy, _ := cmd.Flags().GetString("strategy")
+	workers, _ := cmd.Flags().GetInt("concurrent")
 
 	return fileset.RotateOptions{
 		Root:      root,
@@ -96,5 +98,6 @@ func readFilesetRotateOptions(cmd *cobra.Command) fileset.RotateOptions {
 		ModifyPct: modifyPct,
 		Seed:      seed,
 		Strategy:  strategy,
+		Workers:   workers,
 	}
 }

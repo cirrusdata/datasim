@@ -7,6 +7,7 @@ require (
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
+	golang.org/x/sync v0.19.0
 	golang.org/x/sys v0.39.0
 	golang.org/x/term v0.38.0
 )

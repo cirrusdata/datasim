@@ -10,13 +10,17 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cirrusdata/datasim/internal/manifest"
 	"github.com/cirrusdata/datasim/internal/storage"
 	"github.com/cirrusdata/datasim/pkg/bytefmt"
+	"golang.org/x/sync/errgroup"
 )
 
 // Service orchestrates fileset initialization, rotation, status, and destroy operations.
@@ -32,6 +36,7 @@ type InitOptions struct {
 	TotalSize string
 	Seed      int64
 	Strategy  string
+	Workers   int
 	Progress  ProgressFunc
 }
 
@@ -43,6 +48,7 @@ type RotateOptions struct {
 	ModifyPct float64
 	Seed      int64
 	Strategy  string
+	Workers   int
 	Progress  ProgressFunc
 }
 
@@ -67,6 +73,11 @@ type Progress struct {
 // ProgressFunc receives progress updates for fileset operations.
 type ProgressFunc func(Progress)
 
+// DefaultWorkerCount returns the default number of concurrent fileset workers.
+func DefaultWorkerCount() int {
+	return max(8, runtime.GOMAXPROCS(0))
+}
+
 // NewService constructs a fileset service from a profile catalog and manifest store.
 func NewService(catalog *Catalog, store *manifest.Store) *Service {
 	return &Service{catalog: catalog, store: store}
@@ -86,6 +97,9 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 		opts.Strategy = StrategyBalanced
 	}
 	if err := ValidateStrategy(opts.Strategy); err != nil {
+		return nil, err
+	}
+	if err := validateWorkerCount(opts.Workers); err != nil {
 		return nil, err
 	}
 
@@ -130,6 +144,7 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 		TotalBytes:    totalBytes,
 		CurrentAction: "create",
 	})
+	progress := newProgressEmitter(opts.Progress)
 
 	now := time.Now().UTC()
 	doc := &manifest.Manifest{
@@ -146,38 +161,47 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 		},
 	}
 
-	completedFiles := 0
-	completedBytes := int64(0)
-	for _, spec := range plan.Files {
+	records := make([]manifest.FileRecord, len(plan.Files))
+	var completedFiles atomic.Int64
+	var completedBytes atomic.Int64
+	workers := normalizeWorkerCount(opts.Workers, len(plan.Files))
+	if err := runParallel(ctx, workers, len(plan.Files), func(index int) error {
+		spec := plan.Files[index]
 		record, err := writeSpec(opts.Root, spec, func(written int64) {
-			completedBytes += written
-			reportProgress(opts.Progress, Progress{
+			bytes := completedBytes.Add(written)
+			progress.Report(Progress{
 				Operation:      "init",
 				Phase:          "write",
 				CurrentPath:    spec.RelativePath,
 				CurrentAction:  "create",
-				CompletedItems: completedFiles,
+				CompletedItems: int(completedFiles.Load()),
 				TotalItems:     len(plan.Files),
-				CompletedBytes: completedBytes,
+				CompletedBytes: bytes,
 				TotalBytes:     totalBytes,
 			})
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
-		doc.Files = append(doc.Files, record)
-		completedFiles++
-		reportProgress(opts.Progress, Progress{
+
+		records[index] = record
+		items := completedFiles.Add(1)
+		progress.Report(Progress{
 			Operation:      "init",
 			Phase:          "write",
 			CurrentPath:    spec.RelativePath,
 			CurrentAction:  "create",
-			CompletedItems: completedFiles,
+			CompletedItems: int(items),
 			TotalItems:     len(plan.Files),
-			CompletedBytes: completedBytes,
+			CompletedBytes: completedBytes.Load(),
 			TotalBytes:     totalBytes,
 		})
+		return nil
+	}); err != nil {
+		return nil, err
 	}
+
+	doc.Files = append(doc.Files, records...)
 
 	sortFiles(doc.Files)
 	manifest.RefreshStatus(doc, "init", now, len(doc.Files), 0, 0)
@@ -209,6 +233,9 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 		opts.Strategy = StrategyBalanced
 	}
 	if err := ValidateStrategy(opts.Strategy); err != nil {
+		return nil, err
+	}
+	if err := validateWorkerCount(opts.Workers); err != nil {
 		return nil, err
 	}
 
@@ -252,6 +279,7 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 	for _, file := range doc.Files {
 		records[file.Path] = file
 	}
+	progress := newProgressEmitter(opts.Progress)
 
 	reportProgress(opts.Progress, Progress{
 		Operation:     "rotate",
@@ -259,21 +287,29 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 		CurrentAction: "delete",
 		TotalItems:    len(plan.Deletes),
 	})
-	deleted := 0
-	for _, rel := range plan.Deletes {
+	var deleted atomic.Int64
+	deleteWorkers := normalizeWorkerCount(opts.Workers, len(plan.Deletes))
+	if err := runParallel(ctx, deleteWorkers, len(plan.Deletes), func(index int) error {
+		rel := plan.Deletes[index]
 		if err := os.Remove(filepath.Join(opts.Root, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
-			return nil, err
+			return err
 		}
-		delete(records, rel)
-		deleted++
-		reportProgress(opts.Progress, Progress{
+
+		items := deleted.Add(1)
+		progress.Report(Progress{
 			Operation:      "rotate",
 			Phase:          "delete",
 			CurrentPath:    rel,
 			CurrentAction:  "delete",
-			CompletedItems: deleted,
+			CompletedItems: int(items),
 			TotalItems:     len(plan.Deletes),
 		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	for _, rel := range plan.Deletes {
+		delete(records, rel)
 	}
 
 	totalMutationBytes := int64(0)
@@ -291,42 +327,56 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 		TotalItems:    len(plan.Mutations),
 		TotalBytes:    totalMutationBytes,
 	})
-	mutated := 0
-	mutatedBytes := int64(0)
-	for _, mutation := range plan.Mutations {
+	mutationResults := make([]manifest.FileRecord, len(plan.Mutations))
+	mutationApplied := make([]bool, len(plan.Mutations))
+	var mutated atomic.Int64
+	var mutatedBytes atomic.Int64
+	mutationWorkers := normalizeWorkerCount(opts.Workers, len(plan.Mutations))
+	if err := runParallel(ctx, mutationWorkers, len(plan.Mutations), func(index int) error {
+		mutation := plan.Mutations[index]
 		record, ok := records[mutation.RelativePath]
 		if !ok {
-			continue
+			return nil
 		}
 
 		updated, err := mutateSpec(opts.Root, record, mutation, func(written int64) {
-			mutatedBytes += written
-			reportProgress(opts.Progress, Progress{
+			bytes := mutatedBytes.Add(written)
+			progress.Report(Progress{
 				Operation:      "rotate",
 				Phase:          "mutate",
 				CurrentPath:    mutation.RelativePath,
 				CurrentAction:  string(mutation.Action),
-				CompletedItems: mutated,
+				CompletedItems: int(mutated.Load()),
 				TotalItems:     len(plan.Mutations),
-				CompletedBytes: mutatedBytes,
+				CompletedBytes: bytes,
 				TotalBytes:     totalMutationBytes,
 			})
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
-		records[mutation.RelativePath] = updated
-		mutated++
-		reportProgress(opts.Progress, Progress{
+
+		mutationResults[index] = updated
+		mutationApplied[index] = true
+		items := mutated.Add(1)
+		progress.Report(Progress{
 			Operation:      "rotate",
 			Phase:          "mutate",
 			CurrentPath:    mutation.RelativePath,
 			CurrentAction:  string(mutation.Action),
-			CompletedItems: mutated,
+			CompletedItems: int(items),
 			TotalItems:     len(plan.Mutations),
-			CompletedBytes: mutatedBytes,
+			CompletedBytes: mutatedBytes.Load(),
 			TotalBytes:     totalMutationBytes,
 		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	for index, applied := range mutationApplied {
+		if applied {
+			records[plan.Mutations[index].RelativePath] = mutationResults[index]
+		}
 	}
 
 	totalCreateBytes := int64(0)
@@ -340,37 +390,47 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 		TotalItems:    len(plan.Creates),
 		TotalBytes:    totalCreateBytes,
 	})
-	created := 0
-	createdBytes := int64(0)
-	for _, spec := range plan.Creates {
+	createResults := make([]manifest.FileRecord, len(plan.Creates))
+	var created atomic.Int64
+	var createdBytes atomic.Int64
+	createWorkers := normalizeWorkerCount(opts.Workers, len(plan.Creates))
+	if err := runParallel(ctx, createWorkers, len(plan.Creates), func(index int) error {
+		spec := plan.Creates[index]
 		record, err := writeSpec(opts.Root, spec, func(written int64) {
-			createdBytes += written
-			reportProgress(opts.Progress, Progress{
+			bytes := createdBytes.Add(written)
+			progress.Report(Progress{
 				Operation:      "rotate",
 				Phase:          "create",
 				CurrentPath:    spec.RelativePath,
 				CurrentAction:  "create",
-				CompletedItems: created,
+				CompletedItems: int(created.Load()),
 				TotalItems:     len(plan.Creates),
-				CompletedBytes: createdBytes,
+				CompletedBytes: bytes,
 				TotalBytes:     totalCreateBytes,
 			})
 		})
 		if err != nil {
-			return nil, err
+			return err
 		}
-		records[record.Path] = record
-		created++
-		reportProgress(opts.Progress, Progress{
+
+		createResults[index] = record
+		items := created.Add(1)
+		progress.Report(Progress{
 			Operation:      "rotate",
 			Phase:          "create",
 			CurrentPath:    spec.RelativePath,
 			CurrentAction:  "create",
-			CompletedItems: created,
+			CompletedItems: int(items),
 			TotalItems:     len(plan.Creates),
-			CompletedBytes: createdBytes,
+			CompletedBytes: createdBytes.Load(),
 			TotalBytes:     totalCreateBytes,
 		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	for _, record := range createResults {
+		records[record.Path] = record
 	}
 
 	doc.Files = doc.Files[:0]
@@ -762,4 +822,78 @@ func reportProgress(progress ProgressFunc, update Progress) {
 	}
 
 	progress(update)
+}
+
+// validateWorkerCount rejects negative worker values.
+func validateWorkerCount(workers int) error {
+	if workers < 0 {
+		return fmt.Errorf("workers must be zero or greater")
+	}
+
+	return nil
+}
+
+// normalizeWorkerCount returns a bounded worker count for a task list.
+func normalizeWorkerCount(workers int, totalItems int) int {
+	if totalItems <= 0 {
+		return 1
+	}
+	if workers <= 0 {
+		workers = DefaultWorkerCount()
+	}
+	if workers > totalItems {
+		return totalItems
+	}
+
+	return workers
+}
+
+// progressEmitter serializes progress callbacks emitted by concurrent workers.
+type progressEmitter struct {
+	progress ProgressFunc
+	mu       sync.Mutex
+}
+
+// newProgressEmitter constructs a serialized progress reporter.
+func newProgressEmitter(progress ProgressFunc) *progressEmitter {
+	return &progressEmitter{progress: progress}
+}
+
+// Report emits a progress update while holding the emitter lock.
+func (e *progressEmitter) Report(update Progress) {
+	if e == nil || e.progress == nil {
+		return
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.progress(update)
+}
+
+// runParallel executes indexed work with a bounded number of workers.
+func runParallel(ctx context.Context, workers int, totalItems int, fn func(int) error) error {
+	if totalItems == 0 {
+		return nil
+	}
+
+	workerCount := normalizeWorkerCount(workers, totalItems)
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(workerCount)
+
+	for index := range totalItems {
+		index := index
+		if err := groupCtx.Err(); err != nil {
+			return err
+		}
+
+		group.Go(func() error {
+			if err := groupCtx.Err(); err != nil {
+				return err
+			}
+
+			return fn(index)
+		})
+	}
+
+	return group.Wait()
 }

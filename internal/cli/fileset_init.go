@@ -67,6 +67,7 @@ func bindFilesetInitFlags(cmd *cobra.Command, bootstrap *app.Bootstrap) {
 	cmd.Flags().String("size", "", "Maximum dataset size; defaults to 80% of filesystem capacity")
 	cmd.Flags().Int64("seed", 0, "Random seed for reproducible output")
 	cmd.Flags().String("strategy", fileset.StrategyBalanced, strategyFlagUsage())
+	cmd.Flags().Int("concurrent", fileset.DefaultWorkerCount(), concurrentFlagUsage())
 	_ = cmd.MarkFlagRequired("fs")
 	_ = cmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profileCompletion(bootstrap, toComplete)
@@ -83,6 +84,7 @@ func readFilesetInitOptions(cmd *cobra.Command, bootstrap *app.Bootstrap) filese
 	totalSize, _ := cmd.Flags().GetString("size")
 	seed, _ := cmd.Flags().GetInt64("seed")
 	strategy, _ := cmd.Flags().GetString("strategy")
+	workers, _ := cmd.Flags().GetInt("concurrent")
 
 	return fileset.InitOptions{
 		Profile:   profile,
@@ -90,5 +92,6 @@ func readFilesetInitOptions(cmd *cobra.Command, bootstrap *app.Bootstrap) filese
 		TotalSize: totalSize,
 		Seed:      seed,
 		Strategy:  strategy,
+		Workers:   workers,
 	}
 }

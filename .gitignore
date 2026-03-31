@@ -33,3 +33,6 @@ go.work.sum
 
 # Local release artifacts
 dist/
+
+# Data volume for container
+data/

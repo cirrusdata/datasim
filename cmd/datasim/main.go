@@ -32,7 +32,9 @@ func main() {
 
 	root := cli.NewRootCmd(bootstrap)
 	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		if err.Error() != "" {
+			fmt.Fprintln(os.Stderr, err)
+		}
+		os.Exit(cli.ExitCode(err))
 	}
 }

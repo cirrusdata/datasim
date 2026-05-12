@@ -6,7 +6,13 @@ The first simulation included is `fileset`, which generates and rotates syntheti
 
 ## Installing
 
-Download the latest prebuilt binary from the [releases page](https://github.com/cirrusdata/datasim/releases). Each release includes copy-paste install commands for Linux (amd64 and arm64) and Windows (amd64 and arm64).
+Download the latest prebuilt binary from the [releases page](https://github.com/cirrusdata/datasim/releases). Each release includes copy-paste install commands for Linux, and Windows users can install the latest release with a one-liner:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/cirrusdata/datasim/main/install-release.ps1').Content))"
+```
+
+The Windows installer auto-detects `amd64` vs `arm64`, verifies the downloaded archive against `checksums.txt`, installs `datasim.exe` to `%LocalAppData%\Programs\datasim`, and adds that directory to the user `PATH`.
 
 
 ## fileset
@@ -14,7 +20,7 @@ Download the latest prebuilt binary from the [releases page](https://github.com/
 The `fileset` simulation generates a directory tree with realistic file names, extensions, and directory structure on a mounted filesystem. datasim tracks everything it created in a manifest file and lets you apply ongoing churn to simulate active usage. When the test is done, one command removes exactly what was created and nothing else.
 
 > [!NOTE]
-> File content is currently randomly generated. This simulation produces realistic-looking structure, not readable documents.
+> File content is deterministic patterned data. This simulation produces realistic-looking structure, not readable documents.
 
 ### Quick Start
 
@@ -27,6 +33,9 @@ datasim fileset status /mnt/test
 
 # Apply one round of file churn (creates, deletes, and modifies files)
 datasim fileset rotate --fs /mnt/test
+
+# Verify a migrated copy against the source tree
+datasim verify dir /mnt/test /mnt/test-copy --exclude .cirrusdata-datasim
 
 # Remove everything datasim created
 datasim fileset destroy /mnt/test
@@ -41,13 +50,22 @@ datasim fileset destroy /mnt/test
 datasim fileset init --fs /mnt/test --profile corporate --size 10GiB
 ```
 
-`--fs` is the directory to populate. `--profile` picks the dataset profile; it defaults to `corporate` if you leave it out. `--size` sets the target dataset size, with suffixes like `MiB`, `GiB`, or `TiB`. If you omit `--size`, datasim targets 80% of the filesystem's available capacity.
+`--fs` is the directory to populate. It can also point at an S3-compatible object-store prefix using `s3://host/bucket/prefix`. `s3://` uses HTTPS; use `s3+http://host/bucket/prefix` for a non-TLS S3-compatible endpoint. `--profile` picks the dataset profile; it defaults to `corporate` if you leave it out. `--size` sets the target dataset size, with suffixes like `MiB`, `GiB`, or `TiB`. If you omit `--size` for a local filesystem, datasim targets 80% of the filesystem's available capacity. S3 targets require an explicit `--size`.
+
+For S3-compatible object stores, credentials come from the standard AWS environment variables. Set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN`; do not put credentials in the URL.
+
+```bash
+AWS_ACCESS_KEY_ID=example AWS_SECRET_ACCESS_KEY=example-secret \
+  datasim fileset init --fs s3://object.example.com/test-bucket/demo --profile corporate --size 10GiB
+```
 
 To get the same dataset every time — useful when you need a repeatable test scenario — pass a fixed seed:
 
 ```bash
 datasim fileset init --fs /mnt/test --profile nasa --size 50GiB --seed 42
 ```
+
+For datasets created with a fixed seed, reusing the same ordered rotation seeds reproduces the same file tree, file content, and file timestamps in another root. That makes it practical to create a known source dataset, migrate it, and then compare source and destination directly.
 
 The `--strategy` flag controls how files are distributed across the tree. `balanced` (the default) applies the profile's characteristic distribution. `random` produces higher-variance output with irregular file counts and sizes, which can stress certain edge cases in migration or sync tools.
 
@@ -99,6 +117,36 @@ datasim fileset rotate --fs /mnt/test --create-pct 2 --delete-pct 30 --modify-pc
 ```
 
 Each rotation is recorded in the manifest with its timestamp, seed, and operation counts. You can see the history with `datasim fileset status /mnt/test`.
+
+If you want reproducible churn, pass explicit rotate seeds and reuse the same ordered seed list in another environment:
+
+```bash
+datasim fileset rotate --fs /mnt/test --seed 1001
+datasim fileset rotate --fs /mnt/test --seed 1002
+datasim fileset rotate --fs /mnt/test --seed 1003
+```
+
+### verify
+
+`datasim verify dir` compares any source directory tree to any destination directory tree for migration-style integrity checks. It verifies relative paths, entry types, file sizes, file content hashes, and, by default, file mode and modified time metadata.
+
+```bash
+datasim verify dir /mnt/source /mnt/destination
+```
+
+Use `--exclude` when you want to ignore expected control files such as the datasim manifest:
+
+```bash
+datasim verify dir /mnt/source /mnt/destination --exclude .cirrusdata-datasim
+```
+
+If you only care about inventory and content, disable metadata comparison:
+
+```bash
+datasim verify dir /mnt/source /mnt/destination --metadata=false
+```
+
+Add `--json` for scripting. The command exits with status `0` when the trees match and `1` when differences are found.
 
 ### rotate loop
 
@@ -156,6 +204,7 @@ datasim --help
 datasim fileset --help
 datasim fileset init --help
 datasim fileset rotate --help
+datasim verify dir --help
 ```
 
 For engineering notes and architecture details, see [docs/design.md](docs/design.md).

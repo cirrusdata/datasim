@@ -160,14 +160,14 @@ func (p Profile) PlanInit(_ context.Context, req InitRequest) (InitPlan, error) 
 	}
 
 	sizes := allocateSizes(req.TargetBytes, fileCount, rng, p.SizeTiers)
-	now := time.Now().UTC()
+	now := deterministicPlanningClock(req.Seed, currentGeneratorVersion)
 	files := make([]FileSpec, 0, len(sizes))
 
 	for i, size := range sizes {
 		dir := p.Directories[rng.Intn(len(p.Directories))]
 		category := p.categoryForDirectory(dir, rng)
 		ext := pickExtension(rng, p.Extensions, category)
-		base := p.fileBaseName(rng, category, i)
+		base := p.fileBaseName(rng, category, i, now)
 		rel := filepath.ToSlash(filepath.Join(dir, base+ext))
 
 		files = append(files, FileSpec{
@@ -216,7 +216,7 @@ func (p Profile) PlanRotate(_ context.Context, req RotateRequest) (RotatePlan, e
 
 	remaining := current[min(deleteCount, len(current)):]
 	mutations := make([]Mutation, 0, modifyCount)
-	rotationNow := time.Now().UTC()
+	rotationNow := deterministicRotationClock(req.Manifest, req.Seed)
 	for idx, record := range remaining[:min(modifyCount, len(remaining))] {
 		action := []MutationAction{MutationRewrite, MutationAppend, MutationTruncate}[rng.Intn(3)]
 		newSize := record.Size
@@ -296,10 +296,10 @@ func (p Profile) estimateFileCount(targetBytes int64) int {
 }
 
 // fileBaseName returns a realistic filename stem for a profile category.
-func (p Profile) fileBaseName(rng *rand.Rand, category string, index int) string {
+func (p Profile) fileBaseName(rng *rand.Rand, category string, index int, reference time.Time) string {
 	prefix := p.Prefixes[rng.Intn(len(p.Prefixes))]
 	noun := p.Nouns[rng.Intn(len(p.Nouns))]
-	when := time.Now().UTC().Add(-time.Duration(rng.Intn(3000)) * time.Hour)
+	when := reference.Add(-time.Duration(rng.Intn(3000)) * time.Hour)
 	stamp := when.Format("20060102")
 	year := when.Format("2006")
 	month := strings.ToLower(when.Format("Jan"))

@@ -10,6 +10,11 @@ type Store struct {
 	fileName string
 }
 
+// FileName returns the manifest metadata filename.
+func (s *Store) FileName() string {
+	return s.fileName
+}
+
 // NewStore constructs a manifest store for the given metadata filename.
 func NewStore(fileName string) *Store {
 	return &Store{fileName: fileName}

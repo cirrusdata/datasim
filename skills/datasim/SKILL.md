@@ -41,16 +41,22 @@ Start by identifying which of these workflows the user needs:
    Use `datasim fileset init`, `status`, `rotate`, `rotate loop`, and `destroy`.
 2. Raw block device or disposable disk:
    Use `datasim block-device format` first, then operate `fileset` inside the mounted path, and finish with `datasim block-device destroy` when teardown is wanted.
-3. Build and release support:
+3. S3-compatible object-store prefix:
+   Use the same `datasim fileset` commands with an S3 root. Use `s3://host/bucket/prefix` for HTTPS and `s3+http://host/bucket/prefix` for HTTP. `fileset init` requires `--size` for S3 targets because there is no filesystem capacity to query. Credentials must come from `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and optionally `AWS_SESSION_TOKEN`; do not put credentials in the S3 URL.
+4. Build and release support:
    Use `datasim version` to inspect build metadata and use `datasim update` only for released builds with a SemVer version.
 
 Prefer these command patterns:
 
 - `datasim fileset init --fs <mount-point> --profile <profile> [--size <size>] [--seed <seed>]`
+- `AWS_ACCESS_KEY_ID=<key> AWS_SECRET_ACCESS_KEY=<secret> datasim fileset init --fs s3://host/bucket/prefix --profile <profile> --size <size> [--seed <seed>]`
 - `datasim fileset status <mount-point>`
+- `datasim fileset status s3://host/bucket/prefix`
 - `datasim fileset rotate --fs <mount-point> [--create-pct N --delete-pct N --modify-pct N]`
+- `datasim fileset rotate --fs s3://host/bucket/prefix [--create-pct N --delete-pct N --modify-pct N]`
 - `datasim fileset rotate loop --fs <mount-point> --interval <duration>`
 - `datasim fileset destroy <mount-point>`
+- `datasim fileset destroy s3://host/bucket/prefix`
 - `datasim block-device format <device> <mount-point>`
 - `datasim block-device destroy <mount-point>`
 

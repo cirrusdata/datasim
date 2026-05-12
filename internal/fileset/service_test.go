@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cirrusdata/datasim/internal/manifest"
+	verifysvc "github.com/cirrusdata/datasim/internal/verify"
 )
 
 // TestInitAndRotate verifies fileset initialization and rotation manifest updates.
@@ -217,5 +218,90 @@ func TestInvalidWorkerCount(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected invalid rotate worker count error")
+	}
+}
+
+// TestDeterministicReplayAcrossRoots verifies identical init and rotate seeds produce identical trees in different roots.
+func TestDeterministicReplayAcrossRoots(t *testing.T) {
+	t.Parallel()
+
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	store := manifest.NewStore(".cirrusdata-datasim")
+	service := NewService(NewCatalog(), store)
+	verifier := verifysvc.NewService(nil)
+
+	initOptions := InitOptions{
+		Profile:   "corporate",
+		TotalSize: "2MiB",
+		Seed:      1234,
+		Strategy:  StrategyBalanced,
+		Workers:   4,
+	}
+	docA, err := service.Init(context.Background(), InitOptions{
+		Profile:   initOptions.Profile,
+		Root:      rootA,
+		TotalSize: initOptions.TotalSize,
+		Seed:      initOptions.Seed,
+		Strategy:  initOptions.Strategy,
+		Workers:   initOptions.Workers,
+	})
+	if err != nil {
+		t.Fatalf("Init for rootA returned error: %v", err)
+	}
+	docB, err := service.Init(context.Background(), InitOptions{
+		Profile:   initOptions.Profile,
+		Root:      rootB,
+		TotalSize: initOptions.TotalSize,
+		Seed:      initOptions.Seed,
+		Strategy:  initOptions.Strategy,
+		Workers:   initOptions.Workers,
+	})
+	if err != nil {
+		t.Fatalf("Init for rootB returned error: %v", err)
+	}
+
+	if docA.GeneratorVersion != currentGeneratorVersion || docB.GeneratorVersion != currentGeneratorVersion {
+		t.Fatalf("expected generator version %d, got %d and %d", currentGeneratorVersion, docA.GeneratorVersion, docB.GeneratorVersion)
+	}
+
+	rotationSeeds := []int64{2001, 2002, 2003}
+	for _, seed := range rotationSeeds {
+		if _, err := service.Rotate(context.Background(), RotateOptions{
+			Root:      rootA,
+			CreatePct: 5,
+			DeletePct: 5,
+			ModifyPct: 10,
+			Seed:      seed,
+			Strategy:  StrategyBalanced,
+			Workers:   4,
+		}); err != nil {
+			t.Fatalf("Rotate for rootA with seed %d returned error: %v", seed, err)
+		}
+		if _, err := service.Rotate(context.Background(), RotateOptions{
+			Root:      rootB,
+			CreatePct: 5,
+			DeletePct: 5,
+			ModifyPct: 10,
+			Seed:      seed,
+			Strategy:  StrategyBalanced,
+			Workers:   4,
+		}); err != nil {
+			t.Fatalf("Rotate for rootB with seed %d returned error: %v", seed, err)
+		}
+	}
+
+	result, err := verifier.VerifyDir(context.Background(), verifysvc.DirOptions{
+		SourceRoot:      rootA,
+		DestinationRoot: rootB,
+		Metadata:        true,
+		Excludes:        []string{".cirrusdata-datasim"},
+		Workers:         4,
+	})
+	if err != nil {
+		t.Fatalf("VerifyDir returned error: %v", err)
+	}
+	if !result.Matched {
+		t.Fatalf("expected deterministic trees to match, found differences: %+v", result.Differences)
 	}
 }

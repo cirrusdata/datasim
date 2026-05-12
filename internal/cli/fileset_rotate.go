@@ -18,11 +18,20 @@ func newFilesetRotateCmd(bootstrap *app.Bootstrap) *cobra.Command {
 		Long: `Rotate an existing fileset by applying create, delete, and modify work
 against the manifest-backed dataset state.
 
+Targets:
+  /path/to/root                 Local filesystem root.
+  s3://host/bucket/prefix       S3-compatible object-store prefix over HTTPS.
+  s3+http://host/bucket/prefix  S3-compatible object-store prefix over HTTP.
+
+S3 credentials are read from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and
+AWS_SESSION_TOKEN when present. Credentials in S3 URLs are rejected.
+
 Strategies:
   balanced   Default profile-shaped churn with steady create, delete, and modify behavior.
   random     Higher-variance churn with more irregular work distribution.`,
 		Example: strings.Join([]string{
 			"  datasim fileset rotate --fs /mnt/datasim-source",
+			"  datasim fileset rotate --fs s3://object.example.com/test-bucket/demo",
 			"  datasim fileset rotate --fs /mnt/datasim-source --strategy random --create-pct 10 --delete-pct 2 --modify-pct 20",
 		}, "\n"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -68,7 +77,7 @@ func rotatePercent(count int, total int) string {
 
 // bindFilesetRotateFlags registers shared fileset rotate flags.
 func bindFilesetRotateFlags(cmd *cobra.Command) {
-	cmd.Flags().String("fs", "", "Mounted filesystem root to rotate")
+	cmd.Flags().String("fs", "", "Filesystem root or S3-compatible object-store prefix to rotate")
 	cmd.Flags().Float64("create-pct", 5, "Percentage of files to create")
 	cmd.Flags().Float64("delete-pct", 5, "Percentage of files to delete")
 	cmd.Flags().Float64("modify-pct", 10, "Percentage of files to modify")

@@ -65,11 +65,12 @@ release:
       | sudo tar xz -C /usr/local/bin datasim
     ```
 
-    **Windows (amd64):**
-    Download [datasim_{{ .Version }}_windows_amd64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_amd64.zip), extract it, and run `datasim.exe`.
+    **Windows (auto-detect amd64/arm64):**
+    ```powershell
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/cirrusdata/datasim/{{ .Tag }}/install-release.ps1').Content)) -Version '{{ .Tag }}'"
+    ```
 
-    **Windows (arm64):**
-    Download [datasim_{{ .Version }}_windows_arm64.zip](https://github.com/cirrusdata/datasim/releases/download/{{ .Tag }}/datasim_{{ .Version }}_windows_arm64.zip), extract it, and run `datasim.exe`.
+    This installs `datasim.exe` to `%LocalAppData%\Programs\datasim`, verifies the archive against `checksums.txt`, and adds that directory to the user `PATH`.
 
     Verify the install:
     ```bash

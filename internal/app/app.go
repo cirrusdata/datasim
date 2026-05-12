@@ -6,6 +6,7 @@ import (
 	"github.com/cirrusdata/datasim/internal/filesystem"
 	"github.com/cirrusdata/datasim/internal/manifest"
 	"github.com/cirrusdata/datasim/internal/update"
+	"github.com/cirrusdata/datasim/internal/verify"
 )
 
 // BuildInfo describes the build-time metadata embedded in the binary.
@@ -23,6 +24,7 @@ type Bootstrap struct {
 	Fileset     *fileset.Service
 	BlockDevice *filesystem.Manager
 	Updater     *update.Service
+	Verifier    *verify.Service
 }
 
 // New loads default configuration and constructs the application bootstrap.
@@ -45,6 +47,7 @@ func NewWithConfig(build BuildInfo, cfg config.Config) (*Bootstrap, error) {
 	manifestStore := manifest.NewStore(cfg.MetadataFileName)
 	worker := fileset.NewService(fileset.NewCatalog(), manifestStore)
 	blockDevice := filesystem.NewManager(cfg, stateStore, filesystem.ExecRunner{})
+	verifier := verify.NewService(nil)
 	updater, err := update.NewService(update.Config{
 		CurrentVersion: build.Version,
 		Repository:     build.Repository,
@@ -59,6 +62,7 @@ func NewWithConfig(build BuildInfo, cfg config.Config) (*Bootstrap, error) {
 		Fileset:     worker,
 		BlockDevice: blockDevice,
 		Updater:     updater,
+		Verifier:    verifier,
 	}, nil
 }
 
@@ -78,6 +82,7 @@ func (b *Bootstrap) Reload(configFile string) error {
 	b.Fileset = next.Fileset
 	b.BlockDevice = next.BlockDevice
 	b.Updater = next.Updater
+	b.Verifier = next.Verifier
 
 	return nil
 }

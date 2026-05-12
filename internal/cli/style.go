@@ -211,6 +211,8 @@ func (t terminalTheme) badge(value string, operation string) string {
 		return t.style(padded, ansiBold, ansiFgBlack, ansiBgCyan)
 	case "rotate":
 		return t.style(padded, ansiBold, ansiFgBrightWhite, ansiBgBlue)
+	case "verify":
+		return t.style(padded, ansiBold, ansiFgBlack, ansiBgGreen)
 	case "destroy":
 		return t.style(padded, ansiBold, ansiFgBrightWhite, ansiBgRed)
 	case "update":
@@ -225,8 +227,12 @@ func (t terminalTheme) phaseStyle(phase string) string {
 	switch phase {
 	case "write", "create":
 		return t.style(phase, ansiBold, ansiFgCyan)
+	case "scan":
+		return t.style(phase, ansiBold, ansiFgCyan)
 	case "mutate":
 		return t.style(phase, ansiBold, ansiFgYellow)
+	case "hash", "compare":
+		return t.style(phase, ansiBold, ansiFgBlue)
 	case "delete":
 		return t.style(phase, ansiBold, ansiFgRed)
 	case "save", "cleanup":
@@ -248,6 +254,8 @@ func (t terminalTheme) progressBarStyle(value string, complete bool, operation s
 		return t.style(value, ansiBold, ansiFgCyan)
 	case "rotate":
 		return t.style(value, ansiBold, ansiFgBlue)
+	case "verify":
+		return t.style(value, ansiBold, ansiFgGreen)
 	case "destroy":
 		return t.style(value, ansiBold, ansiFgRed)
 	default:
@@ -274,6 +282,14 @@ func (t terminalTheme) symbolInfo() string {
 	return t.info("i")
 }
 
+// symbolDanger returns the preferred failure symbol for interactive terminals.
+func (t terminalTheme) symbolDanger() string {
+	if !t.stdoutTTY {
+		return ""
+	}
+	return t.danger("x")
+}
+
 // printSuccessBlock prints a structured success result for interactive terminals.
 func printSuccessBlock(cmd *cobra.Command, title string, rows ...detailRow) {
 	theme := newTerminalTheme(cmd)
@@ -287,6 +303,21 @@ func printSuccessBlock(cmd *cobra.Command, title string, rows ...detailRow) {
 	}
 
 	printBlock(cmd, theme.symbolSuccess(), theme.bold(title), rows...)
+}
+
+// printDangerBlock prints a structured failure result for interactive terminals.
+func printDangerBlock(cmd *cobra.Command, title string, rows ...detailRow) {
+	theme := newTerminalTheme(cmd)
+	if !theme.stdoutTTY {
+		if len(rows) == 0 {
+			fmt.Fprintln(cmd.OutOrStdout(), title)
+			return
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%s: %s\n", title, formatRowsInline(rows))
+		return
+	}
+
+	printBlock(cmd, theme.symbolDanger(), theme.bold(title), rows...)
 }
 
 // printInfoBlock prints a structured informational block for interactive terminals.

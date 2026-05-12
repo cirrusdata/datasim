@@ -55,6 +55,7 @@ migration, sync, and integrity validation workflows.`,
 	cmd.AddCommand(
 		newFilesetCmd(bootstrap),
 		newBlockDeviceCmd(bootstrap),
+		newVerifyCmd(bootstrap),
 		newUpdateCmd(bootstrap),
 		newVersionCmd(bootstrap),
 		newCompletionCmd(cmd),

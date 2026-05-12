@@ -3,18 +3,19 @@ package manifest
 import "time"
 
 type Manifest struct {
-	Version    int               `json:"version"`
-	Workload   string            `json:"workload"`
-	Profile    string            `json:"profile,omitempty"`
-	Strategy   string            `json:"strategy"`
-	Seed       int64             `json:"seed"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
-	Filesystem Filesystem        `json:"filesystem"`
-	Generation Generation        `json:"generation"`
-	Status     Status            `json:"status"`
-	Files      []FileRecord      `json:"files"`
-	History    []RotationHistory `json:"history,omitempty"`
+	Version          int               `json:"version"`
+	Workload         string            `json:"workload"`
+	Profile          string            `json:"profile,omitempty"`
+	Strategy         string            `json:"strategy"`
+	GeneratorVersion int               `json:"generator_version,omitempty"`
+	Seed             int64             `json:"seed"`
+	CreatedAt        time.Time         `json:"created_at"`
+	UpdatedAt        time.Time         `json:"updated_at"`
+	Filesystem       Filesystem        `json:"filesystem"`
+	Generation       Generation        `json:"generation"`
+	Status           Status            `json:"status"`
+	Files            []FileRecord      `json:"files"`
+	History          []RotationHistory `json:"history,omitempty"`
 }
 
 type Filesystem struct {

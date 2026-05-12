@@ -16,8 +16,17 @@ func newFilesetInitCmd(bootstrap *app.Bootstrap) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Initialize a fileset dataset and write its manifest",
-		Long: `Initialize a fileset dataset in a mounted filesystem and write the
+		Long: `Initialize a fileset dataset in a filesystem root or S3-compatible
+object-store prefix and write the
 datasim manifest that records the generation parameters and resulting inventory.
+
+Targets:
+  /path/to/root                 Local filesystem root. --size defaults to 80% of filesystem capacity.
+  s3://host/bucket/prefix       S3-compatible object-store prefix over HTTPS. --size is required.
+  s3+http://host/bucket/prefix  S3-compatible object-store prefix over HTTP. --size is required.
+
+S3 credentials are read from AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and
+AWS_SESSION_TOKEN when present. Credentials in S3 URLs are rejected.
 
 Profiles:
   corporate  Corporate share with finance, engineering, legal, marketing, and shared operations data.
@@ -30,6 +39,7 @@ Strategies:
 		Example: strings.Join([]string{
 			"  datasim fileset init --fs /mnt/datasim-source --profile corporate --size 10GiB",
 			"  datasim fileset init --fs /mnt/datasim-source --profile school --strategy random --size 2GiB",
+			"  AWS_ACCESS_KEY_ID=example AWS_SECRET_ACCESS_KEY=example-secret datasim fileset init --fs s3://object.example.com/test-bucket/demo --profile corporate --size 10GiB",
 		}, "\n"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts := readFilesetInitOptions(cmd, bootstrap)
@@ -62,7 +72,7 @@ Strategies:
 
 // bindFilesetInitFlags registers shared fileset init flags.
 func bindFilesetInitFlags(cmd *cobra.Command, bootstrap *app.Bootstrap) {
-	cmd.Flags().String("fs", "", "Mounted filesystem root to populate")
+	cmd.Flags().String("fs", "", "Filesystem root or S3-compatible object-store prefix to populate")
 	cmd.Flags().String("profile", bootstrap.Fileset.Catalog().DefaultProfileName(), profileFlagUsage(bootstrap))
 	cmd.Flags().String("size", "", "Maximum dataset size; defaults to 80% of filesystem capacity")
 	cmd.Flags().Int64("seed", 0, "Random seed for reproducible output")

@@ -18,8 +18,6 @@ import (
 	"time"
 
 	"github.com/cirrusdata/datasim/internal/manifest"
-	"github.com/cirrusdata/datasim/internal/storage"
-	"github.com/cirrusdata/datasim/pkg/bytefmt"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -113,17 +111,23 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 		seed = time.Now().UnixNano()
 	}
 
-	if err := os.MkdirAll(opts.Root, 0o755); err != nil {
+	target, err := s.target(opts.Root)
+	if err != nil {
 		return nil, err
 	}
-
-	targetBytes, generation, err := s.resolveGeneration(opts)
+	if target.RequiresExplicitSize() && opts.TotalSize == "" {
+		return nil, errExplicitSizeRequired(opts.Root)
+	}
+	if err := target.EnsureRoot(ctx); err != nil {
+		return nil, err
+	}
+	targetBytes, generation, err := target.ResolveGeneration(opts)
 	if err != nil {
 		return nil, err
 	}
 
 	plan, err := profile.PlanInit(ctx, InitRequest{
-		Root:           opts.Root,
+		Root:           target.Root(),
 		TargetBytes:    targetBytes,
 		PreferredFiles: 0,
 		Seed:           seed,
@@ -148,16 +152,17 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 
 	now := time.Now().UTC()
 	doc := &manifest.Manifest{
-		Version:    1,
-		Workload:   "fileset",
-		Profile:    profile.Name,
-		Strategy:   opts.Strategy,
-		Seed:       seed,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		Generation: generation,
+		Version:          1,
+		Workload:         "fileset",
+		Profile:          profile.Name,
+		Strategy:         opts.Strategy,
+		GeneratorVersion: currentGeneratorVersion,
+		Seed:             seed,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		Generation:       generation,
 		Filesystem: manifest.Filesystem{
-			Root: opts.Root,
+			Root: target.Root(),
 		},
 	}
 
@@ -167,7 +172,7 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 	workers := normalizeWorkerCount(opts.Workers, len(plan.Files))
 	if err := runParallel(ctx, workers, len(plan.Files), func(index int) error {
 		spec := plan.Files[index]
-		record, err := writeSpec(opts.Root, spec, func(written int64) {
+		record, err := target.WriteSpec(ctx, spec, func(written int64) {
 			bytes := completedBytes.Add(written)
 			progress.Report(Progress{
 				Operation:      "init",
@@ -213,7 +218,7 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*manifest.Manifes
 		CompletedItems: 0,
 		TotalItems:     1,
 	})
-	if err := s.store.Save(opts.Root, doc); err != nil {
+	if err := target.SaveManifest(ctx, doc); err != nil {
 		return nil, err
 	}
 	reportProgress(opts.Progress, Progress{
@@ -239,7 +244,12 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 		return nil, err
 	}
 
-	doc, err := s.store.Load(opts.Root)
+	target, err := s.target(opts.Root)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := target.LoadManifest(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +301,7 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 	deleteWorkers := normalizeWorkerCount(opts.Workers, len(plan.Deletes))
 	if err := runParallel(ctx, deleteWorkers, len(plan.Deletes), func(index int) error {
 		rel := plan.Deletes[index]
-		if err := os.Remove(filepath.Join(opts.Root, filepath.FromSlash(rel))); err != nil && !os.IsNotExist(err) {
+		if err := target.DeleteFile(ctx, rel); err != nil {
 			return err
 		}
 
@@ -339,7 +349,7 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 			return nil
 		}
 
-		updated, err := mutateSpec(opts.Root, record, mutation, func(written int64) {
+		updated, err := target.MutateSpec(ctx, record, mutation, func(written int64) {
 			bytes := mutatedBytes.Add(written)
 			progress.Report(Progress{
 				Operation:      "rotate",
@@ -396,7 +406,7 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 	createWorkers := normalizeWorkerCount(opts.Workers, len(plan.Creates))
 	if err := runParallel(ctx, createWorkers, len(plan.Creates), func(index int) error {
 		spec := plan.Creates[index]
-		record, err := writeSpec(opts.Root, spec, func(written int64) {
+		record, err := target.WriteSpec(ctx, spec, func(written int64) {
 			bytes := createdBytes.Add(written)
 			progress.Report(Progress{
 				Operation:      "rotate",
@@ -462,7 +472,7 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 		CompletedItems: 0,
 		TotalItems:     1,
 	})
-	if err := s.store.Save(opts.Root, doc); err != nil {
+	if err := target.SaveManifest(ctx, doc); err != nil {
 		return nil, err
 	}
 	reportProgress(opts.Progress, Progress{
@@ -478,7 +488,13 @@ func (s *Service) Rotate(ctx context.Context, opts RotateOptions) (*manifest.Man
 
 // Destroy removes the files tracked by a fileset manifest and deletes the manifest itself.
 func (s *Service) Destroy(opts DestroyOptions) error {
-	doc, err := s.store.Load(opts.Root)
+	ctx := context.Background()
+	target, err := s.target(opts.Root)
+	if err != nil {
+		return err
+	}
+
+	doc, err := target.LoadManifest(ctx)
 	if err != nil {
 		return err
 	}
@@ -491,7 +507,7 @@ func (s *Service) Destroy(opts DestroyOptions) error {
 	})
 	deleted := 0
 	for _, file := range doc.Files {
-		if err := os.Remove(filepath.Join(opts.Root, filepath.FromSlash(file.Path))); err != nil && !os.IsNotExist(err) {
+		if err := target.DeleteFile(ctx, file.Path); err != nil {
 			return err
 		}
 		deleted++
@@ -523,6 +539,9 @@ func (s *Service) Destroy(opts DestroyOptions) error {
 			TotalItems:     len(dirs),
 		})
 	}
+	if err := target.Cleanup(ctx); err != nil {
+		return err
+	}
 
 	reportProgress(opts.Progress, Progress{
 		Operation:      "destroy",
@@ -531,7 +550,7 @@ func (s *Service) Destroy(opts DestroyOptions) error {
 		CompletedItems: 0,
 		TotalItems:     1,
 	})
-	if err := s.store.Delete(opts.Root); err != nil {
+	if err := target.DeleteManifest(ctx); err != nil {
 		return err
 	}
 	reportProgress(opts.Progress, Progress{
@@ -547,7 +566,12 @@ func (s *Service) Destroy(opts DestroyOptions) error {
 
 // Status loads the manifest-backed state for a fileset.
 func (s *Service) Status(root string) (*manifest.Manifest, error) {
-	doc, err := s.store.Load(root)
+	target, err := s.target(root)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := target.LoadManifest(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -559,31 +583,9 @@ func (s *Service) Status(root string) (*manifest.Manifest, error) {
 	return doc, nil
 }
 
-// resolveGeneration determines the initialization size target.
-func (s *Service) resolveGeneration(opts InitOptions) (int64, manifest.Generation, error) {
-	if opts.TotalSize != "" {
-		targetBytes, err := bytefmt.Parse(opts.TotalSize)
-		if err != nil {
-			return 0, manifest.Generation{}, err
-		}
-
-		return targetBytes, manifest.Generation{
-			TargetBytes: targetBytes,
-		}, nil
-	}
-
-	stats, err := storage.Stat(opts.Root)
-	if err != nil {
-		return 0, manifest.Generation{}, err
-	}
-
-	targetBytes := int64(stats.CapacityBytes * 80 / 100)
-	return targetBytes, manifest.Generation{
-		TargetBytes:           targetBytes,
-		DefaultedFromCapacity: true,
-		CapacityBytes:         stats.CapacityBytes,
-		TargetUtilizationPct:  80,
-	}, nil
+// target constructs the backing target for a fileset root.
+func (s *Service) target(root string) (datasetTarget, error) {
+	return newDatasetTarget(root, s.store, s.store.FileName())
 }
 
 // sortFiles keeps manifest file records in a stable order.

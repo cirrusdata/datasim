@@ -14,6 +14,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create
 
 The Windows installer auto-detects `amd64` vs `arm64`, verifies the downloaded archive against `checksums.txt`, installs `datasim.exe` to `%LocalAppData%\Programs\datasim`, and adds that directory to the user `PATH`.
 
+To run datasim on macOS or in a container, see [docs/docker.md](docs/docker.md).
 
 ## fileset
 
